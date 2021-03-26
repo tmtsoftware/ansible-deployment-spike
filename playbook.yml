@@ -1,0 +1,92 @@
+
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Download coursier
+      get_url:
+        url: https://git.io/coursier-cli-linux
+        dest: /home/centos/cs
+        mode: 0111
+
+    - name: Install coursier
+      become_user: centos
+      shell: |
+        ~/cs install cs
+        ~/cs setup --jvm 11 -y
+        ~/cs channel --add https://raw.githubusercontent.com/tmtsoftware/osw-apps/master/apps.prod.json
+
+    - name: Add cs and java to path
+      lineinfile:
+        state: present
+        dest: /home/centos/.bashrc
+        line: "{{ item.line }}"
+      with_items:
+        - { line: 'export JAVA_HOME="/home/centos/.cache/coursier/jvm/adopt@1.11.0-9"' }
+        - { line: 'export PATH="$PATH:/home/centos/.cache/coursier/jvm/adopt@1.11.0-9/bin"' }
+        - { line: 'export PATH="$PATH:/home/centos/.local/share/coursier/bin"' }
+  tags:
+    - cs_setup
+    
+- hosts: all
+  become_user: centos
+  tasks:
+    - name: Start location server
+      shell: |
+        source ~/.bashrc && cs install location-server:{{csw_version}}
+        nohup location-server --clusterPort=3552 &
+      environment:
+        CLUSTER_SEEDS: 192.168.0.106:3552 # replace with the ip of seed node VM
+        INTERFACE_NAME: enp0s3
+        AAS_INTERFACE_NAME: enp0s3
+        TMT_LOG_HOME: /tmp
+      args:
+        executable: /bin/bash
+
+    - name: Check location service
+      command: netstat -ltpn | grep 127.0.0.1:7654
+      register: result
+      until: result.rc == 0
+      retries: 5
+      delay: 10
+  tags:
+    - services_startup
+
+- hosts: config_server
+  become_user: centos
+  tasks:
+    - name: Start config server
+      shell: |
+        source ~/.bashrc && cs install config-server:{{csw_version}}
+        nohup config-server --initRepo &
+      environment:
+        INTERFACE_NAME: enp0s3
+        AAS_INTERFACE_NAME: enp0s3
+        TMT_LOG_HOME: /tmp
+        JAVA_OPTS: -Dauth-config.disabled=true
+      args:
+        executable: /bin/bash
+
+    - name: Check config service
+      command: netstat -ltpn | grep :4000
+      register: result
+      until: result.rc == 0
+      retries: 5
+      delay: 20
+  tags:
+    - services_startup
+
+- hosts: all
+  become_user: centos
+  tasks:
+    - name: Start agent app
+      shell: |
+        source ~/.bashrc && cs install agent-app:{{esw_version}}
+        nohup agent-app start --prefix "ESW.{{machine_name}}" &
+      environment:
+        INTERFACE_NAME: enp0s3
+        TMT_LOG_HOME: /tmp
+      args:
+        executable: /bin/bash
+  tags:
+    - services_startup

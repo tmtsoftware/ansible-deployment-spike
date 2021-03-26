@@ -1,0 +1,8 @@
+[cluster_seeds]   # represents cluster seeds host group
+192.168.0.106 machine_name=machine1
+# replace with ip address of VM that is intended to be used as seed node for location cluster
+# machine_name is a variable used in playbook to get machine name while starting agent app
+
+[config_server]
+192.168.0.103 machine_name=machine2
+# replace with ip of VM on which config service is to be started
